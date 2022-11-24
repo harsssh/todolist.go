@@ -54,5 +54,9 @@ func ShowTask(ctx *gin.Context) {
 	}
 
 	// Render task
-	ctx.String(http.StatusOK, task.Title)  // Modify it!!
+	ctx.HTML(http.StatusOK, "task.html", task.Title)
+}
+
+func NewTaskForm(ctx *gin.Context) {
+	ctx.HTML(http.StatusOK, "form_new_task.html", gin.H{"Title": "Task registration"})
 }
