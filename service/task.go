@@ -156,3 +156,25 @@ func UpdateTask(ctx *gin.Context) {
 	path := fmt.Sprintf("/task/%d", id)
 	ctx.Redirect(http.StatusFound, path)
 }
+
+func DeleteTask(ctx *gin.Context) {
+	id, err := strconv.Atoi(ctx.Param("id"))
+	if err != nil {
+		Error(http.StatusBadRequest, err.Error())(ctx)
+		return
+	}
+
+	db, err := database.GetConnection()
+	if err != nil {
+		Error(http.StatusInternalServerError, err.Error())(ctx)
+		return
+	}
+
+	_, err = db.Exec("DELETE FROM tasks WHERE id = ?", id)
+	if err != nil {
+		Error(http.StatusInternalServerError, err.Error())(ctx)
+		return
+	}
+
+	ctx.Redirect(http.StatusFound, "/list")
+}
