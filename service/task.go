@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"github.com/gin-contrib/sessions"
 	"net/http"
 	"strconv"
 
@@ -11,6 +12,8 @@ import (
 
 // TaskList renders list of tasks in DB
 func TaskList(ctx *gin.Context) {
+	userID := sessions.Default(ctx).Get("user")
+
 	// Get DB connection
 	db, err := database.GetConnection()
 	if err != nil {
@@ -18,9 +21,15 @@ func TaskList(ctx *gin.Context) {
 		return
 	}
 
+	kw := ctx.Query("kw")
+
 	// Get tasks in DB
 	var tasks []database.Task
-	err = db.Select(&tasks, "SELECT * FROM tasks") // Use DB#Select for multiple entries
+	query := "SELECT id, title, created_at, is_done FROM tasks INNER JOIN ownership ON task_id = id WHERE user_id = ?"
+	if kw != "" {
+		query += fmt.Sprintf(" WHERE title LIKE '%s'", "%"+kw+"%")
+	}
+	err = db.Select(&tasks, query, userID)
 	if err != nil {
 		Error(http.StatusInternalServerError, err.Error())(ctx)
 		return
@@ -66,29 +75,41 @@ func NewTaskForm(ctx *gin.Context) {
 }
 
 func RegisterTask(ctx *gin.Context) {
+	userID := sessions.Default(ctx).Get("user")
+
 	title, exist := ctx.GetPostForm("title")
 	if !exist {
 		Error(http.StatusBadRequest, "No title is given")(ctx)
 		return
 	}
 
+	// Get DB connection
 	db, err := database.GetConnection()
 	if err != nil {
 		Error(http.StatusInternalServerError, err.Error())(ctx)
 		return
 	}
-
-	result, err := db.Exec("INSERT INTO tasks (title) VALUES (?)", title)
+	tx := db.MustBegin()
+	result, err := tx.Exec("INSERT INTO tasks (title) VALUES (?)", title)
 	if err != nil {
+		tx.Rollback()
 		Error(http.StatusInternalServerError, err.Error())(ctx)
 		return
 	}
-
-	path := "/list"
-	if id, err := result.LastInsertId(); err == nil {
-		path = fmt.Sprintf("/task/%d", id)
+	taskID, err := result.LastInsertId()
+	if err != nil {
+		tx.Rollback()
+		Error(http.StatusInternalServerError, err.Error())(ctx)
+		return
 	}
-	ctx.Redirect(http.StatusFound, path)
+	_, err = tx.Exec("INSERT INTO ownership (user_id, task_id) VALUES (?, ?)", userID, taskID)
+	if err != nil {
+		tx.Rollback()
+		Error(http.StatusInternalServerError, err.Error())(ctx)
+		return
+	}
+	tx.Commit()
+	ctx.Redirect(http.StatusFound, fmt.Sprintf("/task/%d", taskID))
 }
 
 func EditTaskForm(ctx *gin.Context) {
